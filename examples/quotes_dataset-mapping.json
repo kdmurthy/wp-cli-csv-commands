@@ -1,0 +1,18 @@
+{
+    "C1": {
+        "type": "post",
+        "sanitize": [ "wp_kses_post" ],
+        "name": "post_title"
+    },
+    "C2": {
+        "type": "taxonomy",
+        "sanitize": [ "ucwords" ],
+        "name": "category"
+    },
+    "C3": {
+        "type": "taxonomy",
+        "sanitize": [ "ucwords" ],
+        "name": "post_tag",
+	"delimiter": ","
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "name": "kdmurthy/wp-cli-csv-commands",
+    "description": "Import CSV data into WordPress.",
+    "type": "wp-cli-package",
+    "homepage": "https://github.com/kdmurtht/wp-cli-csv-commands",
+    "license": "GPL V3",
+    "require": {
+        "php": ">=5.4"
+    },
+    "autoload": {
+        "files": ["wp-cli-csv-commands.php"]
+    }
+}
