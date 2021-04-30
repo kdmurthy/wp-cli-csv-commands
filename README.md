@@ -59,9 +59,8 @@ You can install this as a WP CLI package using `wp package` command or as a Word
     ## EXAMPLES
     
         # Generate a 'movie' post type for the 'simple-life' theme
-        $ wp scaffold post-type movie --label=Movie --theme=simple-life
-        Success: Created '/var/www/example.com/public_html/wp-content/themes/simple-life/post-types/movie.php'.
-    
+        $ wp csv import quotes_dataset-partial.csv --strict --no-header --post-type=post --status=publish --mapping=quotes_dataset-mapping.json
+        Success: Wrote 100 records.    
 
 ### Mapping file format
 
@@ -78,13 +77,13 @@ The file consists of a JSON object. Each key of the object represents an header 
 
 The following example imports a CSV file containing quotations into WordPress `post` post type. The full CSV file and the mapping file is in the `examples` folder.
 
-The CSV File (`quites_dataset.csv`):
+The CSV File (`quotes_dataset.csv`):
 
 	"Mans vanity transgresses death","Erik Christian Haugaard, The Samurai's Tale","death, pride, vanity"
 	"Monsters are not born they are made.","Valjeanne Jeffers","life-and-living, truth-of-life"
 	"Coffee is to a Writer as Blood is to a Vampire!","Kade Cook","reality"
 
-The Mapping file (`quutes_dataset-mapping.json`):
+The Mapping file (`quotes_dataset-mapping.json`):
 
 	{
 	    "C1": {
