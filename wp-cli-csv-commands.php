@@ -7,6 +7,7 @@
  * Author URI: https://github.com/kdmurthy/wp-cli-csv-commands
  * Version: 0.1.0
  * Text Domain: wp-cli-csv-commands
+ * Domain Path: /languages
  * Requires at least: 4.7.0
  * Tested up to: 4.7.1
  *
