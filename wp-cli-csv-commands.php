@@ -5,7 +5,7 @@
  * Description: Import CSV Data to WordPress
  * Author: Dakshinamurthy Karra
  * Author URI: https://github.com/kdmurthy/wp-cli-csv-commands
- * Version: 0.1.0
+ * Version: 0.2.0
  * Text Domain: wp-cli-csv-commands
  * Domain Path: /languages
  * Requires at least: 4.7.0
