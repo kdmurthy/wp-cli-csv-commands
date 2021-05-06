@@ -15,8 +15,6 @@
  * @package wp-cli
  */
 
-// phpcs:disable
-
 WP_CLI::add_command( 'csv', 'CSVCommands' );
 ini_set( 'auto_detect_line_endings', '1' );
 
@@ -26,51 +24,11 @@ ini_set( 'auto_detect_line_endings', '1' );
 class CSVCommands extends WP_CLI_Command {
 
 	/**
-	 * POST fields
-	 *
-	 * @var array
-	 */
-	
-	const POST_FIELDS = array(
-		'post_author',
-		'post_category',
-		'post_content',
-		'post_date',
-		'post_date_gmt',
-		'post_excerpt',
-		'post_name',
-		'post_password',
-		'post_status',
-		'post_title',
-		'ID',
-		'menu_order',
-		'comment_status',
-		'ping_status',
-		'pinged',
-		'tags_input',
-		'to_ping',
-		'tax_input',
-	);
-
-	const IMAGE_TYPES = array(
-		IMAGETYPE_GIF => "gif",
-		IMAGETYPE_JPEG => "jpeg",
-		IMAGETYPE_PNG => "png",
-	);
-
-	/**
 	 * Import file name
 	 *
 	 * @var string
 	 */
 	public $filename = null;
-
-	/**
-	 * Import file handle
-	 *
-	 * @var handle
-	 */
-	public $file = null;
 
 	/**
 	 * Post author
@@ -87,18 +45,18 @@ class CSVCommands extends WP_CLI_Command {
 	public $status = 'publish';
 
 	/**
-	 * Parsed import file header
-	 *
-	 * @var array
-	 */
-	public $headers = array();
-
-	/**
 	 * Import post type
 	 *
 	 * @var string
 	 */
 	public $post_type = null;
+
+	/**
+	 * Import taxonomy
+	 *
+	 * @var string
+	 */
+	public $taxonomy = null;
 
 	/**
 	 * Dry run without updating WordPress
@@ -119,23 +77,23 @@ class CSVCommands extends WP_CLI_Command {
 	 *
 	 * @var string
 	 */
-	public $thumbnail_base_url = "";
+	public $thumbnail_base_url = '';
 
 	/**
 	 * Does CSV has a header
 	 *
 	 * @var string
 	 */
-	 public $csv_header = true;
+	public $csv_header = true;
 
 	/**
 	 * Strict mode
 	 *
 	 * @var boolean
 	 */
-	 public $csv_strict = false;
+	public $csv_strict = false;
 
-	 /**
+	/**
 	 * Delimiter - fgetcsv
 	 *
 	 * @var string
@@ -156,6 +114,7 @@ class CSVCommands extends WP_CLI_Command {
 	 */
 	public $csv_escape = '\\';
 
+	// phpcs:disable
 	private function logInfo( $var ) {
 		if ( is_array( $var ) || is_object( $var ) ) {
 			error_log( print_r( $var, true ) );
@@ -163,7 +122,9 @@ class CSVCommands extends WP_CLI_Command {
 			error_log( $var );
 		}
 	}
+	// phpcs:enable
 
+	// phpcs:disable
 	/**
 	 * Imports data from a CSV file into WordPress
 	 *
@@ -172,11 +133,14 @@ class CSVCommands extends WP_CLI_Command {
 	 * <file>
 	 * : The CSV file from which to import data. Required.
 	 *
-	 * --mapping=<mapping_file>
-	 * : A JSON file describing the header mappings.
+	 * --type=<post_type|taxonomy>
+	 * : The import type to be used for inserting data. Required.
 	 *
-	 * --post-type=<post_type>
-	 * : The post type to be used for inserting data. Required.
+	 * --name=<name>
+	 * : The name of the import type. Required.
+	 *
+	 * [--mapping=<mapping_file>]
+	 * : A JSON file describing the header mappings. If not given, you should use `csv_commands_mappings` filter to provide mappings.
 	 *
 	 * [--dry-run[=<n>]]
 	 * : Turn on dry run mode. Processes `n` records if given. Defaults to 10. No updates to WordPress takes place.
@@ -190,7 +154,7 @@ class CSVCommands extends WP_CLI_Command {
 	 * [--verbose]
 	 * : Turn on verbose mode.
 	 *
-	 * [--thumbnail_base_url=<thumbnail_base_url>]
+	 * [--thumbnail-base-url=<thumbnail_base_url>]
 	 * : URL part to thumbnails.
 	 *
 	 * [--header]
@@ -211,111 +175,25 @@ class CSVCommands extends WP_CLI_Command {
 	 *
 	 * ## EXAMPLES
 	 *
-	 *     # Generate a 'movie' post type for the 'simple-life' theme
-	 *     $ wp scaffold post-type movie --label=Movie --theme=simple-life
-	 *     Success: Created '/var/www/example.com/public_html/wp-content/themes/simple-life/post-types/movie.php'.
+	 *     # Import quotes from a CSV with given mapping JSON
+	 *     $ wp csv import --type=post_type --name=post --mapping=quotes.json quotes.json
+	 *     Success: Wrote 10 records.
 	 *
 	 * @subcommand import
 	 */
 	public function import( $args, $assoc_args ) {
-
 		$this->process_arguments( $args, $assoc_args );
-		$this->parse_headers();
-		if ( $this->dry_run ) {
-			WP_CLI\Utils\format_items( 'table', array_filter( $this->headers, function( $v ) { return $v !== null; } ), array_keys( $this->headers[0] ) );
-			WP_CLI::success( 'The mapping JSON file is formatted properly.' );
+		if( null !== $this->post_type ) {
+			include_once( 'class-importposts.php' );
+			$import_posts = new ImportPosts( $this );
+			$import_posts->import();			
+		} else {
+			include_once( 'class-importterms.php' );
+			$import_terms = new ImportTerms( $this );
+			$import_terms->import();			
 		}
-
-		$num = 0;
-		$failed = 0;
-		$success = 0;
-		while ( ( $row = fgetcsv( $this->file, 0, $this->csv_delim, $this->csv_enclosure, $this->csv_escape ) ) !== false ) { //phpcs:ignore
-			$num++;
-			if( $this->csv_strict && ( count( $this->headers ) !== count( $row ) ) ) {
-				WP_CLI::warning(" Row #" . $num . ": Expected " . count( $this->headers ) . " columns. Actual: " . count( $row ) );
-				$failed++;
-				continue;
-			}
-			$data = array();
-			foreach ( $this->headers as $k => $v ) {
-				if ( $v === null ) {
-					continue;
-				}
-				if( isset( $v['delimiter'] ) ) {
-					$parts = explode( $v['delimiter'], $row[ $k ] );
-					$values = array();
-					foreach ($parts as $part) {
-						$values[] = $this->sanitize_using_func( $v['sanitize'], $part );
-					}
-					$current_value = $values;
-				} else {
-					$current_value = $this->sanitize_using_func( $v['sanitize'], $row[ $k ] );
-				}
-				$old_value = isset( $data[ $v['type'] ][ $v['name'] ] ) ? $data[ $v['type'] ][ $v['name'] ] : null ;
-				if( $old_value !== null ) {
-					if( !is_array( $old_value )) {
-						$old_value = [ $old_value ];
-					}
-					if( ! is_array( $current_value ) ) {
-						$current_value = [ $current_value ];
-					}
-					$current_value = array_merge( $old_value, $current_value );
-				}
-				$data[ $v['type'] ][ $v['name'] ] = $current_value ;
-			}
-			if( $this->dry_run || $this->write_row( $data, $num ) ) {
-				$success++;
-			} else {
-				$failed++;
-			}
-		}
-		if( $failed === 0 )
-			WP_CLI::success("Wrote " . $success . " records.");
-		else
-			WP_CLI::warning("Wrote ". $success . "/" . $num . " records. Failed: " . $failed );
 	}
-
-	/**
-	 * Write a single row of data into WordPress database.
-	 *
-	 * @param array $data - The data extracted from a row.
-	 * @param int   $row_num - The current row number.
-	 * @return boolean - true on successfully updating db.
-	 */
-	private function write_row( $data, $row_num ) {
-		if ( isset( $data['post'] ) ) {
-			$post_id = $this->insert_post_data( $data['post'] );
-			if ( ! $post_id ) {
-				WP_CLI::warning( 'row #' . $row_num . ' insert/update failed..' );
-				return false;
-			}
-			$saved_data = array();
-
-			$saved_data['post_id'] = $post_id;
-			$saved_data['post']    = $data['post'];
-
-			if ( isset( $post_id ) && isset( $data['meta'] ) ) {
-				$saved_data['meta'] = $this->save_row_meta( $post_id, $data['meta'] );
-			}
-
-			if ( isset( $data['taxonomy'] ) ) {
-				$saved_data['terms'] = $this->save_row_taxonomies( $post_id, $data['taxonomy'] );
-			}
-
-			if ( isset( $data['thumbnail'] ) ) {
-				if ( isset( $data['post']['post_author'] ) ) {
-					$author = $data['post']['post_author'];
-				} else {
-					$author = $this->author;
-				}
-
-				// Suppress Imagick::queryFormats strict static method error from WP core.
-				// phpcs:ignore
-				$saved_data['thumbnails'] = @$this->save_row_thumbnails( $post_id, $data['thumbnail'], $data['post'], $author );
-			}
-		}
-		return true;
-	}
+	// phpcs:enable
 
 	/**
 	 * Process the given command arguments
@@ -326,44 +204,58 @@ class CSVCommands extends WP_CLI_Command {
 	 */
 	private function process_arguments( $args, $assoc_args ) {
 
-		if ( isset( $assoc_args['thumbnail_base_url'] ) ) {
-			$this->thumbnail_base_url = $assoc_args['thumbnail_base_url'];
+		if ( isset( $assoc_args['thumbnail-base-url'] ) ) {
+			if ( filter_var( $assoc_args['thumbnail-base-url'], FILTER_VALIDATE_URL ) === false ) {
+				WP_CLI::error(
+					sprintf(
+						// translators: 1: --thumbnail-base-url argumnet.
+						__( 'Argument Error: Thumbnail URL %s is invalid.', 'wp-cli-csv-commands' ),
+						$assoc_args['thumbnail-base-url']
+					)
+				);
+			}
+			$this->thumbnail_base_url = $assoc_args['thumbnail-base-url'];
 		}
 
 		if ( isset( $assoc_args['author'] ) && $this->is_string_an_int( $assoc_args['author'] ) ) {
 			if ( ! get_userdata( $assoc_args['author'] ) ) {
-				WP_CLI::error( 'user id ' . $assoc_args['author'] . ' does not exist!' );
+				WP_CLI::error(
+					sprintf(
+						// translators: 1: --author argumnet.
+						__( 'Argument Error: User ID %s does not exist.', 'wp-cli-csv-commands' ),
+						$assoc_args['author']
+					)
+				);
 			} else {
 				$this->author = $assoc_args['author'];
 			}
 		} elseif ( isset( $assoc_args['author'] ) && is_string( $assoc_args['author'] ) ) {
 			$author_id = username_exists( $assoc_args['author'] );
 			if ( ! author_id ) {
-				WP_CLI::error( 'user name ' . $assoc_args['author'] . ' does not exist!' );
+				WP_CLI::error(
+					sprintf(
+						// translators: 1: --author argument.
+						__( 'Argument Error: User Name %s does not exist.', 'wp-cli-csv-commands' ),
+						$assoc_args['author']
+					)
+				);
 			} else {
 				$this->author = $author_id;
 			}
 		}
 
-		$this->verbose = WP_CLI\Utils\get_flag_value( $assoc_args, 'verbose', false );
+		$this->verbose    = WP_CLI\Utils\get_flag_value( $assoc_args, 'verbose', false );
 		$this->csv_strict = WP_CLI\Utils\get_flag_value( $assoc_args, 'strict', false );
 		$this->csv_header = WP_CLI\Utils\get_flag_value( $assoc_args, 'header', true );
 
 		if ( isset( $assoc_args['dry-run'] ) ) {
-			if( $assoc_args['dry-run'] !== true ) {
-				if( ! $this->is_string_an_int( $assoc_args['dry-run'] ) ) {
-					WP_CLI::error( 'Need an integer value for dry-run.' );
+			if ( true !== $assoc_args['dry-run'] ) {
+				if ( ! $this->is_string_an_int( $assoc_args['dry-run'] ) ) {
+					WP_CLI::error( 'Argument Error: Need an integer value for dry-run.' );
 				}
 				$this->dry_run_n = intval( $assoc_args['dry-run'] );
 			}
 			$this->dry_run = true;
-		}
-
-		if ( isset( $assoc_args['status'] ) ) {
-			if ( ! in_array( $assoc_args['status'], get_post_stati(), true ) ) {
-				WP_CLI::error( 'status ' . $assoc_args['status'] . ' is not valid' );
-			}
-			$this->status = $assoc_args['status'];
 		}
 
 		if ( isset( $assoc_args['delimiter'] ) ) {
@@ -382,367 +274,62 @@ class CSVCommands extends WP_CLI_Command {
 			$this->mapping_file = $assoc_args['mapping'];
 		}
 
-		if ( post_type_exists( $assoc_args['post-type'] ) ) {
-			$this->post_type = $assoc_args['post-type'];
+		if ( 'post_type' === $assoc_args['type'] ) {
+			if ( post_type_exists( $assoc_args['name'] ) ) {
+				$this->post_type = $assoc_args['name'];
+			} else {
+				WP_CLI::error(
+					sprintf(
+					// translators: 1: --name argument.
+						__( 'Argument Error: Post type %s does not exist.', 'wp-cli-csv-commands' ),
+						$assoc_args['name']
+					)
+				);
+			}
+		} elseif ( 'taxonomy' === $assoc_args['type'] ) {
+			if ( taxonomy_exists( $assoc_args['name'] ) ) {
+				$this->taxonomy = $assoc_args['name'];
+			} else {
+				WP_CLI::error(
+					sprintf(
+						// translators: 1: --name argument.
+						__( 'Argument Error: Taxonomy %s does not exist.', 'wp-cli-csv-commands' ),
+						$assoc_args['name']
+					)
+				);
+			}
 		} else {
-			WP_CLI::error( $assoc_args['post-type'] . ' post type does not exist!' );
+			WP_CLI::error(
+				sprintf(
+					// translators: 1: --type argument.
+					__( 'Argument Error: Invalid type: %s. Must be one of post_type or taxonomy', 'wp-cli-csv-commands' ),
+					$assoc_args['type']
+				)
+			);
+		}
+
+		if ( isset( $assoc_args['status'] ) ) {
+			if ( null === $this->post_type ) {
+				WP_CLI::error( 'Argument Error: --status argument is valid only when --type is post_type' );
+			}
+			if ( ! in_array( $assoc_args['status'], get_post_stati(), true ) ) {
+				WP_CLI::error(
+					sprintf(
+						// translators: 1: --status argument.
+						__( 'Argument Error: Status %s is invalid.', 'wp-cli-csv-commands' ),
+						$assoc_args['status']
+					)
+				);
+			}
+			$this->status = $assoc_args['status'];
 		}
 
 		if ( isset( $args[0] ) ) {
 			$this->filename = $args[0];
 		} else {
-			WP_CLI::error( 'file not specified!' );
-		}
-
-	}
-
-	private function mapping_values( $mapping ) {
-		$r = array_map(
-			function( $v ) use( $mapping ) {
-				return ( isset( $mapping[$v] ) ? $mapping[$v]: null) ;
-			},
-			[ 'type', 'sanitize', 'name', 'delimiter' ] );
-		return $r;
-	}
-
-	/**
-	 * Read mapping information from mappings JSON file
-	 *
-	 * @return array - an association array of json
-	 */
-	private function get_mappings() {
-		if (false === ($data = @file_get_contents( $this->mapping_file ))) {
-			$error = error_get_last();
-			WP_CLI::error( 'unable to read mapping file ' . $this->mapping_file . ': ' . $error['message'] );
-	  	}
-		$mappings = json_decode( $data, true );
-		if( ! $mappings ) {
-			WP_CLI::error( 'unable to process mapping JSON data from ' . $this->mapping_file . ': ' . json_last_error_msg() );
-		}
-		$messages = array();
-
-		foreach( $mappings as $head => $mapping ) {
-				
-			[ $type, $sanitize, $name, $delimiter ] = @$this->mapping_values( $mapping );
-
-			if ( ! in_array( $type, array( 'post', 'meta', 'taxonomy', 'thumbnail' ), true ) ) {
-				$messages[] = $head . ": " . $type . ' is an unsupported field type. Possible types are meta, post, taxonomy, thumbnail!';
-			}
-
-			if ( 'post' === $type && null !== $delimiter ) {
-				$messages[] = $head . ": " . "Post type doesn't support delimiter." ;
-			}
-
-			if ( 'post' === $type && !$this->is_valid_post_field( $name ) ) {
-				$messages[] = $head . ": " . "Invalid post field `" . $name . "` used." ;
-			}
-
-			$functions = $sanitize == null ? [] : $sanitize;
-			if( ! is_array ( $functions ) ) {
-				$functions = [ $sanitize ];
-			}
-			foreach ($functions as $f) {
-				if( ! function_exists( $f ) ) {
-					$messages[] = $head . ": " . $f . ' is an undefined function. ensure your sanitization functions exist!';
-				}
-			}
-	
-			if ( 'taxonomy' === $type && ! taxonomy_exists( $name ) ) {
-				$messages[] = $head . ": " . $name . ' is an not a registered taxonomy!';
-			}
-
-		}
-
-		$this->check_duplicates( $mappings, $messages );
-
-		if ( 0 !== count( $messages ) ) {
-			WP_CLI::error_multi_line( $messages );
-			WP_CLI::error( 'Errors in the mapping JSON.' );
-		}
-		return $mappings;
-	}
-
-	private function is_valid_post_field( $field_name ) {
-		return in_array( $field_name, CSVCommands::POST_FIELDS );
-	}
-
-	private function check_duplicates( $mappings, &$messages ) {
-		$names = array_map( function( $v ) { return $v['type'] . ":" . $v['name']; }, $mappings );
-		$names_count = array_count_values( $names );
-		$dupe_names = array_filter( $names_count, function( $v, $k ) { return !$this->is_multiple_values_supported( $k ) && $v > 1; }, ARRAY_FILTER_USE_BOTH );
-		$duplicate_mappings = array();
-		foreach ($mappings as $header => $mapping) {
-			$key = $mapping['type'] . ":" . $mapping['name'];
-			if( isset( $dupe_names[ $key] )) {
-				$entry = $duplicate_mappings[$key];
-				if( $entry === null )
-					$duplicate_mappings[$key] = [];
-				$duplicate_mappings[$key][$header] = $mapping;
-			}
-		}
-		foreach ($duplicate_mappings as $key => $dup) {
-			[ $type, $name ] = explode( ':', $key );
-			$dup_headers = array_keys( $dup );
-			$messages[] = $dup_headers[0] . ": Duplicate entries found for `" . $type . "` for `" . $name . "`. Other entries: " . implode( ',', array_slice( $dup_headers, 1 ) ) . ".";
+			WP_CLI::error( 'Argument Error: File not specified.' );
 		}
 	}
-	/**
-	 * Given a type+name combo find whether multiple values are supported
-	 *
-	 * @param string $v
-	 * @return boolean
-	 */
-	private function is_multiple_values_supported( $v ) {
-		[ $type, $name ] = explode( ':', $v );
-		return $type !== 'post' ;
-	}
-
-	/**
-	 * Read header row from CSV file
-	 *
-	 * @return array
-	 */
-	private function get_header_row() {
-		$this->open_import_file();
-		$header_row = fgetcsv( $this->file, 0, $this->csv_delim, $this->csv_enclosure, $this->csv_escape );
-		if ( ! $header_row ) {
-			WP_CLI::error( 'unable to read file ' . $this->filename . ', check formatting!' );
-		}
-		$nparts = count( $header_row );
-		while ( 1 === $nparts && null === $header[0] ) { // Empty lines.
-			$header_row = fgetcsv( $this->file, 0, $this->csv_delim, $this->csv_enclosure, $this->csv_escape );
-			$nparts = count( $header_row );
-			if ( ! $header_row ) {
-				WP_CLI::error( 'unable to read file ' . $this->filename . ', check formatting!' );
-			}
-		}
-		if( $this->csv_header )
-			return $header_row ;
-		$temp_header = array();
-		for ($i=0; $i < count( $header_row ); $i++) { 
-			$temp_header[] = 'C' . ($i + 1);
-		}
-		rewind( $this->file );
-		return $temp_header;
-	}
-
-	/**
-	 * Parse headers
-	 *
-	 * @access private
-	 * @return void
-	 */
-	private function parse_headers() {
-		$header_row = $this->get_header_row();
-		$mappings = $this->get_mappings();
-		foreach ( $header_row as $header ) {
-			$this->headers[] = isset( $mappings[ $header ] ) ? $mappings[ $header ] : null;
-		}
-	}
-
-	/**
-	 * Open import file
-	 *
-	 * @access private
-	 * @return void
-	 */
-	private function open_import_file() {
-		if ( ! file_exists( $this->filename ) ) {
-			WP_CLI::error( 'file ' . $this->filename . ' does not exist!' );
-		}
-		// phpcs:ignore
-		$this->file = fopen( $this->filename, 'r' );
-		if ( ! $this->file ) {
-			WP_CLI::error( 'unable to open file ' . $this->filename . ', check permissions!' );
-		}
-	}
-
-	/**
-	 * Insert row post data
-	 *
-	 * @access private
-	 * @param array $post_data post data to be saved.
-	 * @return bool true on success
-	 */
-	private function insert_post_data( $post_data ) {
-
-		if ( 1 === count( $post_data ) && isset( $post_data['ID'] ) && $post_data['ID'] ) {
-			return $post_data['ID'];
-		} elseif ( ! isset( $post_data['post_title'] ) || '' === $post_data['post_title'] ) {
-			WP_CLI::warning( 'row #' . $k . ' skipped - needs a post title...' );
-			return false;
-		}
-
-		$post['post_title'] = $post_data['post_title'];
-
-		if ( isset( $post_data['post_type'] ) && post_type_exists( $post_data['post_type'] ) ) {
-			WP_CLI::warning( 'post type ' . $post_data['post_type'] . ' validated and over-riding ' . $this->post_type );
-			$post['post_type'] = $post_data['post_type'];
-		} else {
-			$post['post_type'] = $this->post_type;
-		}
-
-
-		foreach ( $post_data as $k => $v ) {
-			if ( in_array( $k, CSVCommands::POST_FIELDS, true ) ) {
-				$post[ $k ] = $v;
-			}
-		}
-
-		if ( isset( $post['post_author'] ) && is_int( $post['post_author'] ) ) {
-		} elseif ( isset( $post['post_author'] ) && is_string( $post['post_author'] ) && ( $author_id = username_exists( $post['post_author'] ) ) ) {
-			$post['post_author'] = $author_id;
-		} elseif ( isset( $this->author ) && $this->is_string_an_int( $this->author ) ) {
-			$post['post_author'] = $this->author;
-		}
-		$post['post_status'] = $this->status;
-		$post_id             = wp_insert_post( $post );
-		if ( ! is_wp_error( $post_id ) ) {
-			return $post_id;
-		}
-		foreach ( $post_id->errors as $error ) {
-			WP_CLI::warning( $error[0] );
-		}
-		return false;
-	}
-
-	/**
-	 * Save row metadata
-	 *
-	 * @access private
-	 * @param integer $post_id post id to attach thumbnails to.
-	 * @param array   $meta_data meta data to be saved.
-	 * @return array Metadata as inserted.
-	 */
-	private function save_row_meta( $post_id, $meta_data ) {
-
-		$meta = array();
-		foreach ( $meta_data as $k => $value ) {
-			if ( update_post_meta( $post_id, $k, $value, get_post_meta( $post_id, $k, true ) ) ) {
-				if ( null === $value ) {
-					WP_CLI::warning( 'post id ' . $post_id . ' meta key ' . $k . ' added as null' );
-				} else {
-					$meta[ $k ] = $value;
-				}
-			} else {
-				WP_CLI::warning( 'post id ' . $post_id . ' meta key ' . $k . ' could not be added as ' . $value );
-			}
-		}
-		return $meta;
-	}
-
-	/**
-	 * Save row taxomies
-	 *
-	 * @access private
-	 * @param integer $post_id post id to attach terms to.
-	 * @param array   $taxonomies taxonomy data to be saved.
-	 * @return array Taxonomy terms as inserted
-	 */
-	private function save_row_taxonomies( $post_id, $taxonomies ) {
-
-		$terms = array();
-
-		foreach ( $taxonomies as $k => $value ) {
-			if ( null === $value ) {
-				WP_CLI::warning( $k . ' term value was null for post id ' . $post_id . ', skipping...' );
-				continue;
-			}
-			wp_set_object_terms( $post_id, $value, $k );
-			$terms[ $k ] = $value;
-		}
-		return $terms;
-	}
-
-	/**
-	 * Save row thumbnails
-	 *
-	 * @access private
-	 * @param integer        $post_id post id to attach thumbnails to.
-	 * @param array          $thumbnails thumbnails to be imported.
-	 * @param array          $post parent post data.
-	 * @param string|integer $author author id or name.
-	 * @return array Thumbnail IDs as inserted
-	 */
-	private function save_row_thumbnails( $post_id, $thumbnails, $post = array(), $author = null ) {
-		$thumbs = array();
-
-		foreach ( $thumbnails as $k => $value ) {
-			if ( '' === $value ) {
-				continue;
-			}
-			$image = $this->thumbnail_base_url . $value;
-			/*
-			* This is very similar to media_sideload_image(),
-			* but adds some additional checks and data,
-			* as well as multi featured image sizes
-			*/
-
-			// Download featured image from url to temp location.
-			$tmp_image = download_url( $image );
-
-			// If error storing temporarily, unlink.
-			if ( is_wp_error( $tmp_image ) ) {
-				@unlink( $file_array['tmp_name'] );
-				WP_CLI::warning( $image . ' could not be downloaded from ' . $k . ' for post id ' . $post_id );
-				foreach ( $tmp_image->errors as $error ) {
-					WP_CLI::warning( $error[0] );
-				}
-				continue;
-			}
-
-			$image_type = exif_imagetype( $tmp_image );
-			if( ! in_array( $image_type,  array_keys( CSVCommands::IMAGE_TYPES ) ) ) {
-				WP_CLI::warning( $image . " not of valid type. Only gif, jpeg and png supported" );
-				continue;
-			}
-
-			$extension = CSVCommands::IMAGE_TYPES[$image_type];
-			if( substr( $tmp_image, -strlen( $extension ) ) !== $extension ) {
-				$new_name = $tmp_image . "." . $extension ;
-				rename( $tmp_image, $new_name );
-				$tmp_image = $new_name ;
-			}
-			// Set variables for storage
-			// fix file filename for query strings.
-			$file_array['name']     = sanitize_file_name( $post['post_title'] . "." . $extension );
-			$file_array['tmp_name'] = $tmp_image;
-
-			// Image Metadata.
-			if ( isset( $post['post_title'] ) ) {
-				$image_meta['post_title'] = wp_kses_post( $post['post_title'] );
-			}
-
-			$image_meta['post_parent'] = $post_id;
-			if ( isset( $author ) && is_int( $author ) ) {
-				$image_meta['post_author'] = $author;
-			} elseif ( isset( $author ) && is_string( $author ) && ( $author_id = username_exists( $author ) ) ) {
-				$image_meta['post_author'] = $author_id;
-			}
-
-			$attachment_id = media_handle_sideload( $file_array, $post_id, wp_kses_post( $post['post_excerpt'] ), $image_meta );
-			if ( is_wp_error( $attachment_id ) ) {
-				WP_CLI::warning( $image . ' could not be attached to post id ' . $post_id );
-				foreach ( $attachment_id->errors as $error ) {
-					WP_CLI::warning( 'WP Error: ' . $error[0] );
-				}
-				continue;
-			}
-
-			$thumbs[ $k ] = array(
-				'attachment_id' => $attachment_id,
-				'file'          => $value,
-			);
-
-			if ( ( 'featured_image' === $k ) && set_post_thumbnail( $post_id, $attachment_id ) ) {
-			} elseif ( add_post_meta( $post_id, $this->post_type . '_' . $k . '_thumbnail_id', $attachment_id ) ) {
-			} else {
-				WP_CLI::warning( 'post id ' . $post_id . ' thumbnail key ' . $k . ' could not be attached as ' . $value );
-			}
-		}
-		return $thumbs;
-	}
-
 
 	/**
 	 * Determines wether or not a string is just an integer
@@ -751,20 +338,6 @@ class CSVCommands extends WP_CLI_Command {
 	 * @return boolean
 	 */
 	private function is_string_an_int( $val ) {
-		return (string) (int) $val == $val;
-	}
-
-	/**
-	 * Sanitize
-	 *
-	 * @param  string|array $func function callback.
-	 * @param  any    $val  to be sanitized item.
-	 * @return any          either sanitized or as-is.
-	 */
-	private function sanitize_using_func( $func, $val ) {
-		foreach ($func as $f) {
-			$val = $f( $val );
-		}
-		return $val;
+		return preg_match( '/^\d+$/', $val );
 	}
 }
