@@ -198,6 +198,14 @@ class ImportTerms extends WP_CLI_Command {
 			$term_object              = get_term( $term_id );
 			$saved_data['thumbnails'] = $this->save_row_thumbnails( $term_id, $data['thumbnail'], $term_object, $row_num );
 		}
+		/**
+		 * Perform an action post-update.
+		 *
+		 * This action runs after all data is updated. The saved data and the post type are passed as arguments.
+		 *
+		 * @param array $saved_data - Data containing post, meta and thumbnails
+		 * @param string $taxonomy - The taxonomy being used
+		 */
 		do_action( 'csv_commands_write_row', $saved_data, $this->csv->taxonomy );
 		return true;
 	}
@@ -649,7 +657,7 @@ class ImportTerms extends WP_CLI_Command {
 				continue;
 			}
 
-			$image_type      = exif_imagetype( $tmp_image );
+			$image_type = exif_imagetype( $tmp_image );
 			if ( ! in_array( $image_type, array_keys( self::IMAGE_TYPES ), true ) ) {
 				WP_CLI::warning(
 					sprintf(

@@ -192,7 +192,7 @@ class ImportPosts extends WP_CLI_Command {
 			);
 			return false;
 		}
-		$post_id = $this->insert_post_data( $data['post'], $row_num );
+		$post_id = $this->insert_post_data( $data, $row_num );
 		if ( ! $post_id ) {
 			return false;
 		}
@@ -220,6 +220,14 @@ class ImportPosts extends WP_CLI_Command {
 			// phpcs:ignore
 			$saved_data['thumbnails'] = @$this->save_row_thumbnails( $post_id, $data['thumbnail'], $data['post'], $author );
 		}
+		/**
+		 * Perform an action post-update.
+		 *
+		 * This action runs after all data is updated. The saved data and the post type are passed as arguments.
+		 *
+		 * @param array $saved_data - Data containing post, taxonomies, meta and thumbnails
+		 * @param string $post_type - The post type being used
+		 */
 		do_action( 'csv_commands_write_row', $saved_data, $this->csv->post_type );
 		return true;
 	}
@@ -512,11 +520,12 @@ class ImportPosts extends WP_CLI_Command {
 	 * Insert row post data
 	 *
 	 * @access private
-	 * @param array   $post_data post data to be saved.
+	 * @param array   $data data to be saved.
 	 * @param integer $row_num currently processed row.
 	 * @return bool true on success
 	 */
-	private function insert_post_data( $post_data, $row_num ) {
+	private function insert_post_data( $data, $row_num ) {
+		$post_data = $data['post'];
 		if ( ! isset( $post_data['post_title'] ) || '' === $post_data['post_title'] ) {
 			WP_CLI::warning(
 				sprintf(
@@ -558,10 +567,26 @@ class ImportPosts extends WP_CLI_Command {
 		}
 		$post['post_status'] = $this->csv->status;
 		$old_post            = get_page_by_title( $post['post_title'], ARRAY_A, $post['post_type'] );
-		if ( null == $old_post ) {
+		if ( null === $old_post ) {
 			$old_post = array();
 		}
-		$post_id = wp_insert_post( wp_parse_args( $post, $old_post ) );
+		$post = wp_parse_args( $post, $old_post );
+
+		/**
+		 * Filters the contents of the post being inserted/updated.
+		 *
+		 * This filter runs after the JSON data is read but before validation. Returning false from the filter
+		 * aborts the process.
+		 *
+		 * @param array $post - The post data
+		 * @param array $data - The data processed from CSV
+		 * @param string $post_type - the post type
+		 *
+		 * @return array should return post data
+		*/
+		$post = apply_filters( 'csv_commands_pre_insert_post', $post, $data, $this->csv->post_type );
+
+		$post_id = wp_insert_post( $post );
 		if ( ! is_wp_error( $post_id ) ) {
 			return $post_id;
 		}
